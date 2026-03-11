@@ -32,9 +32,9 @@ import org.slf4j.LoggerFactory;
  *                      │
  *                      └─ 是 Leader → 构造 Task，提交给 node.apply(task)
  *                                          │
- *                                    Raft 日志复制（多数节点确认）
+ *                                    Raft 日志复制（多数节点确认）     共识
  *                                          │
- *                                    LockStateMachine.onApply()
+ *                                    LockStateMachine.onApply()   业务执行
  *                                          │
  *                                    LockClosure.run() → 唤醒 awaitResult()
  *                                          │

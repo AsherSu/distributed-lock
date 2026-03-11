@@ -103,24 +103,6 @@ public class LockStateMachine extends StateMachineAdapter {
 
     /**
      * 处理 ACQUIRE 命令（申请锁）。
-     *
-     * <h3>实现逻辑</h3>
-     * <ol>
-     *   <li>查询 lockStore.get(cmd.getLockKey())。</li>
-     *   <li>如果 entry == null 或 entry.isExpired() → 授予锁：
-     *     <ul>
-     *       <li>生成新令牌：long token = fencingTokenCounter.incrementAndGet()</li>
-     *       <li>构造 LockEntry：expireTime = System.currentTimeMillis() + cmd.getTtlMs()</li>
-     *       <li>写入 lockStore</li>
-     *       <li>return LockResult.success(token)</li>
-     *     </ul>
-     *   </li>
-     *   <li>否则 → 拒绝：return LockResult.locked("Lock held by " + entry.getOwnerId())</li>
-     * </ol>
-     *
-     * <p><strong>幂等性处理</strong>（进阶）：可在状态机中维护一个
-     * {@code Map<String, LockResult> processedRequests}，
-     * 先查 requestId 是否已处理过，若是直接返回缓存结果，避免网络重传导致重复授予。
      */
     private LockResult applyAcquire(LockCommand cmd) {
         LockEntry existing = lockStore.get(cmd.getLockKey());
@@ -156,7 +138,7 @@ public class LockStateMachine extends StateMachineAdapter {
         } else if (!existing.getOwnerId().equals(cmd.getClientIdentify())) {
             // 非当前用户的锁
             return LockResult.stale("");
-        } else if (existing.getFencingToken() == cmd.getFencingToken()){
+        } else if (existing.getFencingToken() != cmd.getFencingToken()){
             // 令牌不一致
             return LockResult.stale("fencing token do not same");
         } else  {

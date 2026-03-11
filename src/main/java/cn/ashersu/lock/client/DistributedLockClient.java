@@ -1,9 +1,12 @@
 package cn.ashersu.lock.client;
 
+import cn.ashersu.lock.command.LockCommandType;
 import cn.ashersu.lock.rpc.LockRequest;
 import cn.ashersu.lock.rpc.LockResponse;
 import com.alipay.sofa.jraft.entity.PeerId;
+import com.alipay.sofa.jraft.option.CliOptions;
 import com.alipay.sofa.jraft.rpc.RpcClient;
+import com.alipay.sofa.jraft.rpc.impl.BoltRpcClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,27 +58,23 @@ public class DistributedLockClient {
 
     public DistributedLockClient(List<PeerId> knownPeers) {
         this.knownPeers = knownPeers;
-        // TODO: 初始化 rpcClient（见字段注释）
+        BoltCliClientService clientService = new BoltCliClientService();
+        clientService.init(new CliOptions());
+        this.rpcClient = clientService.getRpcClient();
     }
 
     /**
      * 尝试申请锁，非阻塞（立即返回成功或失败，不排队等待）。
-     *
-     * @param lockKey 资源名称
-     * @param ttlMs   锁的存活时长（毫秒），建议结合业务预计耗时 + 足够续期次数设定
-     * @return 申请结果，成功时可从中取到 fencingToken；失败时 isSuccess() == false
-     *
-     * <h3>实现步骤</h3>
-     * <ol>
-     *   <li>生成 requestId = UUID.randomUUID().toString()。</li>
-     *   <li>构造 LockRequest（type=ACQUIRE, lockKey, clientId, ttlMs, requestId）。</li>
-     *   <li>调用 {@link #sendWithRedirect(LockRequest)} 发送请求（内部处理 Leader 重定向）。</li>
-     *   <li>返回 LockResponse。</li>
-     * </ol>
      */
     public LockResponse tryLock(String lockKey, long ttlMs) {
-        // TODO: 实现 tryLock（见上方 Javadoc）
-        throw new UnsupportedOperationException("TODO: 实现 tryLock");
+        String requestId = UUID.randomUUID().toString();
+        LockRequest request = new LockRequest();
+        request.setType(LockCommandType.ACQUIRE);
+        request.setLockKey(lockKey);
+        request.setClientId(buildClientId());
+        request.setTtlMs(ttlMs);
+        request.setRequestId(requestId);
+        return sendWithRedirect(request);
     }
 
     /**
