@@ -6,8 +6,10 @@ import cn.ashersu.lock.rpc.LockResponse;
 import cn.ashersu.lock.statemachine.LockClosure;
 import cn.ashersu.lock.statemachine.LockResult;
 import com.alipay.sofa.jraft.Node;
+import com.alipay.sofa.jraft.Status;
 import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.entity.Task;
+import com.alipay.sofa.jraft.error.RaftError;
 import com.alipay.sofa.jraft.rpc.RpcContext;
 import com.alipay.sofa.jraft.rpc.RpcProcessor;
 import org.slf4j.Logger;
@@ -51,42 +53,58 @@ public class LockServiceProcessor implements RpcProcessor<LockRequest> {
 
     /**
      * 处理客户端发来的锁请求。
-     *
-     * <h3>实现步骤</h3>
-     * <ol>
-     *   <li>获取 Node：{@code Node node = raftServer.getNode()}。</li>
-     *   <li>判断是否是 Leader：
-     *     <pre>
-     *     if (!node.isLeader()) {
-     *         PeerId leader = node.getLeaderId();
-     *         String leaderAddr = leader != null ? leader.toString() : null;
-     *         ctx.sendResponse(LockResponse.redirect(leaderAddr));
-     *         return;
-     *     }
-     *     </pre>
-     *   </li>
-     *   <li>将 LockRequest 转换为 LockCommand（字段一一对应）。</li>
-     *   <li>序列化 LockCommand 为 ByteBuffer：{@code LockCommand.encode(cmd)}。</li>
-     *   <li>构造 LockClosure，设置到 Task：
-     *     <pre>
-     *     LockClosure closure = new LockClosure();
-     *     Task task = new Task();
-     *     task.setData(LockCommand.encode(cmd));
-     *     task.setDone(closure);
-     *     node.apply(task);
-     *     </pre>
-     *   </li>
-     *   <li>等待结果：{@code closure.awaitResult()}（此处阻塞直到状态机应用完毕）。</li>
-     *   <li>将 {@link LockResult} 映射为 {@link LockResponse} 通过 ctx.sendResponse() 返回。</li>
-     * </ol>
-     *
-     * <p><strong>超时建议</strong>：awaitResult() 应设置超时（使用 CountDownLatch.await(timeout, unit)），
-     * 超时后返回错误响应，防止客户端永久阻塞。
      */
     @Override
     public void handleRequest(RpcContext ctx, LockRequest request) {
-        // TODO: 实现请求处理（见上方 Javadoc）
-        ctx.sendResponse(LockResponse.fail("TODO: 未实现 handleRequest"));
+        Node node = raftServer.getNode();
+        if (!node.isLeader()) {
+            PeerId leader = node.getLeaderId();
+            String leaderAddr = leader != null ? leader.toString() : null;
+            ctx.sendResponse(LockResponse.redirect(leaderAddr));
+            return;
+        }
+
+        // 构造锁命令
+        LockCommand cmd = null;
+        switch (request.getType()){
+            case ACQUIRE:
+                cmd = LockCommand.acquire(request.getLockKey(), request.getClientId(),request.getThreadId(), request.getTtlMs(), request.getRequestId());
+                break;
+            case RENEW:
+                cmd = LockCommand.renew(request.getLockKey(), request.getClientId(),request.getThreadId(), request.getTtlMs());
+                break;
+            case RELEASE:
+                cmd = LockCommand.release(request.getLockKey(), request.getClientId(),request.getThreadId(), request.getFencingToken());
+                break;
+        }
+        LockClosure closure = new LockClosure();
+        Task task = new Task();
+        task.setData(LockCommand.encode(cmd));
+        task.setDone(closure);
+        node.apply(task);
+
+        try {
+            // 阻塞等待状态机执行完毕（或底层框架报错）
+            closure.awaitResult();
+
+            if (closure.isOk()) {
+                // 达成共识
+                LockResult result = closure.getResult();
+                ctx.sendResponse(result);
+            } else {
+                // 异常处理
+                Status status = closure.getStatus();
+                if (status.getRaftError() == RaftError.ELEADERREMOVED) {
+                    PeerId leader = node.getLeaderId();
+                    ctx.sendResponse(LockResponse.redirect(leader != null ? leader.toString() : null));
+                } else {
+                    ctx.sendResponse(LockResponse.fail("Raft consensus error: " + status.getErrorMsg()));
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            ctx.sendResponse(LockResponse.fail("Server interrupted"));
+        }
     }
 
     /**

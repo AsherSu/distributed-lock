@@ -1,18 +1,14 @@
 package cn.ashersu.lock.client;
 
-import cn.ashersu.lock.command.LockCommandType;
 import cn.ashersu.lock.rpc.LockRequest;
 import cn.ashersu.lock.rpc.LockResponse;
 import com.alipay.sofa.jraft.entity.PeerId;
-import com.alipay.sofa.jraft.rpc.InvokeCallback;
 import com.alipay.sofa.jraft.rpc.RpcClient;
-import com.alipay.sofa.jraft.rpc.impl.cli.BoltCliClientService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.TimeoutException;
 
 /**
  * 分布式锁客户端，对外暴露 {@link #tryLock} / {@link #unlock} / {@link #renew} 接口。

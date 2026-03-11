@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Paths;
+import java.util.Arrays;
 
 /**
  * Raft 节点的启动与生命周期管理。
@@ -53,39 +55,20 @@ public class LockRaftServer {
      * @param serverId  本节点地址，格式 "ip:port"，例如 PeerId.parsePeer("127.0.0.1:8081")
      * @param initConf  初始集群配置（仅首次启动时生效，后续以持久化的配置为准）
      *
-     * <h3>实现步骤</h3>
-     * <ol>
-     *   <li>创建并确保目录存在：dataPath/log、dataPath/meta、dataPath/snapshot。</li>
-     *   <li>实例化 {@code this.stateMachine = new LockStateMachine()}。</li>
-     *   <li>构造 NodeOptions，关键配置：
-     *     <pre>
-     *     NodeOptions opts = new NodeOptions();
-     *     opts.setFsmCaller(stateMachine);        // 注册状态机
-     *     opts.setLogUri(dataPath + "/log");       // Raft 日志路径（RocksDB）
-     *     opts.setRaftMetaUri(dataPath + "/meta"); // 元数据路径（term、voteFor 等）
-     *     opts.setSnapshotUri(dataPath + "/snapshot"); // 快照路径
-     *     opts.setInitialConf(initConf);           // 初始成员配置
-     *     opts.setElectionTimeoutMs(5000);         // 选举超时（建议 3~10 倍心跳间隔）
-     *     opts.setSnapshotIntervalSecs(30);        // 快照间隔（秒）
-     *     </pre>
-     *   </li>
-     *   <li>创建 RpcServer，注册 LockServiceProcessor：
-     *     <pre>
-     *     RpcServer rpcServer = RaftRpcServerFactory.createRaftRpcServer(serverId.getEndpoint());
-     *     rpcServer.registerProcessor(new LockServiceProcessor(this));
-     *     </pre>
-     *   </li>
-     *   <li>创建并启动 RaftGroupService：
-     *     <pre>
-     *     this.raftGroupService = new RaftGroupService(groupId, serverId, opts, rpcServer);
-     *     this.node = raftGroupService.start();
-     *     </pre>
-     *   </li>
-     * </ol>
      */
     public void start(String dataPath, String groupId, PeerId serverId, Configuration initConf) throws IOException {
-        // TODO: 实现节点启动（见上方 Javadoc）
-        throw new UnsupportedOperationException("TODO: 实现 LockRaftServer.start()");
+        NodeOptions opts = new NodeOptions();
+        opts.setFsm(stateMachine);        // 注册状态机
+        opts.setLogUri(dataPath + "\\log");       // Raft 日志路径（RocksDB）
+        opts.setRaftMetaUri(dataPath + "\\meta"); // 元数据路径（term、voteFor 等）
+        opts.setSnapshotUri(dataPath + "\\snapshot"); // 快照路径
+        opts.setInitialConf(initConf);           // 初始成员配置
+        opts.setElectionTimeoutMs(5000);         // 选举超时（建议 3~10 倍心跳间隔）
+        opts.setSnapshotIntervalSecs(30);        // 快照间隔（秒）
+        RpcServer rpcServer = RaftRpcServerFactory.createRaftRpcServer(serverId.getEndpoint());
+        rpcServer.registerProcessor(new LockServiceProcessor(this));
+        this.raftGroupService = new RaftGroupService(groupId, serverId, opts, rpcServer);
+        this.node = raftGroupService.start();
     }
 
     /**
@@ -93,8 +76,7 @@ public class LockRaftServer {
      * 调用 {@code raftGroupService.shutdown()} 并等待其完成。
      */
     public void shutdown() {
-        // TODO: 调用 raftGroupService.shutdown()
-        throw new UnsupportedOperationException("TODO: 实现 shutdown()");
+        raftGroupService.shutdown();
     }
 
     /**
@@ -106,5 +88,21 @@ public class LockRaftServer {
 
     public LockStateMachine getStateMachine() {
         return stateMachine;
+    }
+
+    public static void main(String[] args) {
+        LockRaftServer server = new LockRaftServer();
+        try {
+            server.start(Paths.get("E:\\project\\distributed-lock","data", "raft", "node1").toString(),
+                    "lock-group",
+                    PeerId.parsePeer("127.0.0.1:8081"),
+                    new Configuration(Arrays.asList(
+                            PeerId.parsePeer("127.0.0.1:8081"),
+                            PeerId.parsePeer("127.0.0.1:8082"),
+                            PeerId.parsePeer("127.0.0.1:8083")))
+            );
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

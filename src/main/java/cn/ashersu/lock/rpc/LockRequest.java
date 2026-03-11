@@ -21,8 +21,10 @@ public class LockRequest implements Serializable {
     /** 目标锁资源名称。 */
     private String lockKey;
 
-    /** 客户端唯一标识，格式建议：{hostname}_{pid}_{threadId}。 */
+    /** 客户端唯一标识 */
     private String clientId;
+
+    private String threadId;
 
     /** 锁的存活时长（毫秒），ACQUIRE / RENEW 时有效。 */
     private long ttlMs;
@@ -55,4 +57,12 @@ public class LockRequest implements Serializable {
 
     public long getFencingToken() { return fencingToken; }
     public void setFencingToken(long fencingToken) { this.fencingToken = fencingToken; }
+
+    public String getThreadId() {
+		return threadId;
+	}
+
+    public void setThreadId(String threadId) {
+		this.threadId = threadId;
+	}
 }

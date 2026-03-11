@@ -13,6 +13,12 @@ import com.alipay.sofa.jraft.storage.snapshot.SnapshotWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.nio.ByteBuffer;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
@@ -57,47 +63,26 @@ public class LockStateMachine extends StateMachineAdapter {
 
     /**
      * Raft 框架在日志被多数节点确认后，调用此方法将日志条目应用到状态机。
-     *
-     * <h3>实现步骤</h3>
-     * <ol>
-     *   <li>循环调用 {@code iter.hasNext()} 遍历所有待应用条目。</li>
-     *   <li>对每条日志：
-     *     <ul>
-     *       <li>从 {@code iter.getData()} 拿到 ByteBuffer（即 Task.setData 时写入的内容）。</li>
-     *       <li>用 {@link LockCommand#decode(byte[])} 反序列化为 LockCommand。</li>
-     *       <li>根据 command.getType() 路由到对应处理逻辑（见下方三个私有方法）。</li>
-     *       <li>通过 {@code iter.done()} 拿到 Closure（可能为 null，Follower 上无 Closure），
-     *           非 null 时调用 {@code closure.run(Status.OK())} 通知 RPC 处理器。</li>
-     *     </ul>
-     *   </li>
-     *   <li>如遇反序列化异常，调用 {@code iter.setErrorAndRollback(1, new Status(...))}
-     *       触发 Raft 状态机错误，节点会停止服务。</li>
-     * </ol>
-     *
-     * <pre>
-     * while (iter.hasNext()) {
-     *     LockCommand cmd = null;
-     *     LockClosure done = (LockClosure) iter.done();  // Follower 上为 null
-     *     try {
-     *         ByteBuffer data = iter.getData();
-     *         cmd = LockCommand.decode(data.array());
-     *     } catch (Exception e) {
-     *         iter.setErrorAndRollback(1, new Status(RaftError.ESTATEMACHINE, e.getMessage()));
-     *         return;
-     *     }
-     *     LockResult result = applyCommand(cmd);
-     *     if (done != null) {
-     *         done.setResult(result);
-     *         done.run(Status.OK());
-     *     }
-     *     iter.next();
-     * }
-     * </pre>
      */
     @Override
     public void onApply(Iterator iter) {
-        // TODO: 实现日志应用循环（见上方 Javadoc 的伪代码）
-        throw new UnsupportedOperationException("TODO: 实现 onApply");
+        while (iter.hasNext()) {
+          LockCommand cmd = null;
+          LockClosure done = (LockClosure) iter.done();  // Follower 上为 null
+          try {
+              ByteBuffer data = iter.getData();
+              cmd = LockCommand.decode(data.array());
+          } catch (Exception e) {
+              iter.setErrorAndRollback(1, new Status(RaftError.ESTATEMACHINE, e.getMessage()));
+              return;
+          }
+          LockResult result = applyCommand(cmd);
+          if (done != null) {
+              done.setResult(result);
+              done.run(Status.OK());
+          }
+          iter.next();
+      }
     }
 
     /**
@@ -161,50 +146,47 @@ public class LockStateMachine extends StateMachineAdapter {
     }
 
     /**
-     * 处理 RELEASE 命令（释放锁）。
-     *
-     * <h3>实现逻辑</h3>
-     * <ol>
-     *   <li>查询 entry = lockStore.get(cmd.getLockKey())。</li>
-     *   <li>如果 entry == null → 锁已不存在，return LockResult.success(-1)（幂等）。</li>
-     *   <li>校验 ownerId：entry.getOwnerId().equals(cmd.getClientId())，不匹配 → return LockResult.stale(...)。</li>
-     *   <li>校验 fencingToken：entry.getFencingToken() == cmd.getFencingToken()，不匹配 → return LockResult.stale(...)。</li>
-     *   <li>通过双重校验 → lockStore.remove(cmd.getLockKey())，return LockResult.success(-1)。</li>
-     * </ol>
+     * 释放锁
      */
     private LockResult applyRelease(LockCommand cmd) {
         LockEntry existing = lockStore.get(cmd.getLockKey());
         if (existing == null || existing.isExpired()) {
             // 锁不存在
-            return LockResult.success(-1);
+            return LockResult.success(existing.getFencingToken());
         } else if (!existing.getOwnerId().equals(cmd.getClientIdentify())) {
             // 非当前用户的锁
             return LockResult.stale("");
-        } else if (existing.getOwnerId().equals(cmd.getClientIdentify())) {
-            // 重入锁解锁
-            existing.setReentrantTimes(existing.getReentrantTimes() - 1);
-            return LockResult.locked("unLock ");
-        }else {
-            // 非当前用户的锁
-            return LockResult.stale("");
+        } else if (existing.getFencingToken() == cmd.getFencingToken()){
+            // 令牌不一致
+            return LockResult.stale("fencing token do not same");
+        } else  {
+            if (existing.getReentrantTimes() == 1){
+                // 解锁
+                lockStore.remove(cmd.getLockKey());
+                return LockResult.success(existing.getFencingToken());
+            }else {
+                // 重入锁解锁
+                existing.setReentrantTimes(existing.getReentrantTimes() - 1);
+                return LockResult.locked("unLock reentrant lock");
+            }
         }
     }
 
     /**
-     * 处理 RENEW 命令（续期）。
-     *
-     * <h3>实现逻辑</h3>
-     * <ol>
-     *   <li>查询 entry = lockStore.get(cmd.getLockKey())。</li>
-     *   <li>entry == null 或已过期 → return LockResult.stale("Lock already expired")。</li>
-     *   <li>校验 ownerId，不匹配 → return LockResult.stale(...)。</li>
-     *   <li>更新 expireTime：entry.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs())。</li>
-     *   <li>return LockResult.success(entry.getFencingToken())。</li>
-     * </ol>
+     * 锁续期
      */
     private LockResult applyRenew(LockCommand cmd) {
-        // TODO: 实现续期逻辑（见上方 Javadoc）
-        throw new UnsupportedOperationException("TODO: 实现 applyRenew");
+        LockEntry existing = lockStore.get(cmd.getLockKey());
+        if (existing == null || existing.isExpired()){
+            // 锁不存在
+            return LockResult.stale("Lock already expired");
+        } else if (!existing.getOwnerId().equals(cmd.getClientIdentify())) {
+            // 非当前用户的锁
+            return LockResult.stale("Lock do not beyond you");
+        }else {
+            existing.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs());
+            return LockResult.success(existing.getFencingToken());
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -228,8 +210,30 @@ public class LockStateMachine extends StateMachineAdapter {
      */
     @Override
     public void onSnapshotSave(SnapshotWriter writer, Closure done) {
-        // TODO: 实现快照保存（见上方 Javadoc）
-        done.run(new Status(RaftError.EIO, "TODO: 未实现 onSnapshotSave"));
+        // 1. Get the snapshot file path
+        String snapshotPath = writer.getPath() + "/lock_snapshot.data";
+        
+        try (FileOutputStream fos = new FileOutputStream(snapshotPath);
+             ObjectOutputStream oos = new ObjectOutputStream(fos)) {
+            
+            // 2. Serialize lockStore and fencingTokenCounter
+            // We create a wrapper object or write them sequentially. 
+            // Writing sequentially: first the counter, then the map.
+            oos.writeLong(fencingTokenCounter.get());
+            oos.writeObject(lockStore);
+            
+            // 3. Add the file to the snapshot writer
+            if (writer.addFile("lock_snapshot.data")) {
+                // 4. Success callback
+                done.run(Status.OK());
+            } else {
+                done.run(new Status(RaftError.EIO, "Failed to add snapshot file"));
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to save snapshot", e);
+            // 4. Failure callback
+            done.run(new Status(RaftError.EIO, "Failed to save snapshot: " + e.getMessage()));
+        }
     }
 
     /**
@@ -244,9 +248,18 @@ public class LockStateMachine extends StateMachineAdapter {
      */
     @Override
     public boolean onSnapshotLoad(SnapshotReader reader) {
-        // TODO: 实现快照加载（见上方 Javadoc）
-        LOG.error("TODO: 未实现 onSnapshotLoad");
-        return false;
+        // 1. Get the snapshot file path
+        String snapshotPath = reader.getPath() + "/lock_snapshot.data";
+        try (FileInputStream fis = new FileInputStream(snapshotPath);
+             ObjectInputStream ois = new ObjectInputStream(fis)) {
+            fencingTokenCounter.set(ois.readLong());
+            lockStore.clear();
+            lockStore.putAll((Map<String, LockEntry>) ois.readObject());
+            return true;
+        } catch (Exception e) {
+            LOG.error("Failed to load snapshot", e);
+            return false;
+        }
     }
 
     // -------------------------------------------------------------------------
