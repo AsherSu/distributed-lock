@@ -33,51 +33,55 @@ public class LockWatchdog implements Runnable {
 
     private final DistributedLockClient client;
     private final String lockKey;
-    private final String clientId;
+    private final long fencingToken;
 
-    /** 锁的 TTL（毫秒），续期间隔 = ttlMs / 3。 */
+    private final String threadId;
+
+    /** 锁的 TTL（毫秒） */
     private final long ttlMs;
-
-    /** 续期间隔（毫秒）。 */
+    /** 续期间隔（毫秒），续期间隔 = ttlMs / 3。 */
     private final long intervalMs;
 
     /** 控制线程循环的标志，volatile 保证可见性。 */
     private volatile boolean running = true;
 
-    /** 连续失败计数器。 */
+    /** 连续失败计数器 */
     private int failCount = 0;
 
     /** 锁丢失时的回调（可选）。 */
     private LockLostListener lockLostListener;
 
-    public LockWatchdog(DistributedLockClient client, String lockKey, String clientId, long ttlMs) {
+    public LockWatchdog(DistributedLockClient client, String lockKey, String threadId, long fencingToken,long ttlMs) {
         this.client = client;
         this.lockKey = lockKey;
-        this.clientId = clientId;
-        this.ttlMs = ttlMs;
+        this.fencingToken = fencingToken;
+        this.threadId = threadId;
         this.intervalMs = ttlMs / 3;
+        this.ttlMs=ttlMs;
     }
 
     /**
      * 守护线程主循环。
-     *
-     * <h3>实现逻辑</h3>
-     * <ol>
-     *   <li>循环条件：{@code running && !Thread.currentThread().isInterrupted()}。</li>
-     *   <li>每轮开始先 sleep(intervalMs)。</li>
-     *   <li>调用 {@code client.renew(lockKey, clientId, ttlMs)}：
-     *     <ul>
-     *       <li>成功 → failCount = 0，继续。</li>
-     *       <li>失败 → failCount++，如果达到 MAX_RENEW_FAIL_COUNT 则：
-     *           running = false，触发 lockLostListener，退出循环。</li>
-     *     </ul>
-     *   </li>
-     * </ol>
      */
     @Override
     public void run() {
-        // TODO: 实现续期循环（见上方 Javadoc）
-        throw new UnsupportedOperationException("TODO: 实现 LockWatchdog.run()");
+        while (running && !Thread.currentThread().isInterrupted()) {
+            try {
+                Thread.sleep(intervalMs);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            boolean renew = client.renew(lockKey,threadId, fencingToken,ttlMs);
+            if (renew){
+                failCount = 0;
+            }else {
+                failCount++;
+                if (failCount>MAX_RENEW_FAIL_COUNT){
+                    running = false;
+                    lockLostListener.onLockLost();
+                }
+            }
+        }
     }
 
     /** 停止续期线程（在 unlock 成功后调用）。 */

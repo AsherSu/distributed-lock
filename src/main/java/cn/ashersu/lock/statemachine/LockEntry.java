@@ -17,8 +17,8 @@ public class LockEntry implements Serializable {
     private String lockKey;
 
     /**
-     * 持锁方的唯一标识，等于 LockCommand#clientId。
-     * 状态机在 RELEASE / RENEW 时用此字段校验请求者是否为锁的合法持有者。
+     * 持锁方的唯一标识，等于 LockCommand#clientId:threadId。
+     * 确保锁的归属唯一
      */
     private String ownerId;
 
@@ -29,8 +29,7 @@ public class LockEntry implements Serializable {
     private long expireTime;
 
     /**
-     * 围栏令牌，全局单调递增。每次成功授予锁时由 AtomicLong 递增后写入此处。
-     * 客户端持有此值，RELEASE 时必须原样带回用于校验。
+     * 围栏令牌，全局单调递增。利用递增的特性，保护下游资源。防止stw导致锁过期
      */
     private long fencingToken;
 

@@ -26,20 +26,26 @@ public class LockCommand implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
+     * 全局唯一请求 ID，用于实现幂等性。
+     * 状态机应记录已处理的 requestId，重复请求直接返回上次结果。
+     */
+    private String requestId;
+
+    /**
      * 命令类型
      */
     private LockCommandType type;
 
     /**
-     * 被锁定的资源名称，例如 "order:pay:1001"
+     * 被锁定的资源名称
      */
     private String lockKey;
 
+    // 确保锁的归属
     /**
      * 客户端标识
      */
     private String clientId;
-
     /**
      * 线程标识
      */
@@ -52,17 +58,7 @@ public class LockCommand implements Serializable {
     private long ttlMs;
 
     /**
-     * 全局唯一请求 ID，用于实现幂等性。
-     * 状态机应记录已处理的 requestId，重复请求直接返回上次结果。
-     * 建议用 UUID 或 Snowflake ID 生成。
-     */
-    private String requestId;
-
-    /**
-     * 围栏令牌（Fencing Token），仅 RELEASE 时需要携带。
-     * 状态机在 ACQUIRE 成功时将当前令牌值写入 LockEntry，
-     * RELEASE 时必须与 LockEntry 中的值完全匹配才能释放。
-     * 防止：GC Pause 后旧客户端用过期令牌释放新持有者的锁。
+     * 围栏令牌（Fencing Token），利用递增的特性，保护下游资源。防止stw导致锁过期
      */
     private long fencingToken;
 

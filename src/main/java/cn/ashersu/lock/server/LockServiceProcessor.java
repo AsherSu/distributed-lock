@@ -88,9 +88,12 @@ public class LockServiceProcessor implements RpcProcessor<LockRequest> {
             closure.awaitResult();
 
             if (closure.isOk()) {
-                // 达成共识
+                // 达成共识，将状态机结果映射为 RPC 响应后返回
                 LockResult result = closure.getResult();
-                ctx.sendResponse(result);
+                LockResponse response = result.isSuccess()
+                        ? LockResponse.success(result.getFencingToken())
+                        : LockResponse.fail(result.getMessage());
+                ctx.sendResponse(response);
             } else {
                 // 异常处理
                 Status status = closure.getStatus();

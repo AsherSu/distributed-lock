@@ -6,7 +6,7 @@ import cn.ashersu.lock.rpc.LockResponse;
 import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.option.CliOptions;
 import com.alipay.sofa.jraft.rpc.RpcClient;
-import com.alipay.sofa.jraft.rpc.impl.BoltRpcClient;
+import com.alipay.sofa.jraft.rpc.impl.cli.CliClientServiceImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,17 +38,11 @@ public class DistributedLockClient {
     private volatile PeerId currentLeader;
 
     /**
-     * jraft 提供的 Bolt RPC 客户端服务。
-     * 使用 {@link BoltCliClientService} 包装，可直接向指定 PeerId 发送任意消息。
-     *
-     * <p>初始化：
-     * <pre>
-     *   BoltCliClientService clientService = new BoltCliClientService();
-     *   clientService.init(new CliOptions());
-     *   this.rpcClient = clientService.getRpcClient();
-     * </pre>
+     * jraft 提供的 RPC 客户端服务。
      */
-    private RpcClient rpcClient;
+    private CliClientServiceImpl rpcClient;
+
+    private String clientId;
 
     /** RPC 超时（毫秒）。 */
     private static final int RPC_TIMEOUT_MS = 5_000;
@@ -57,23 +51,43 @@ public class DistributedLockClient {
     private static final int MAX_RETRY = 3;
 
     public DistributedLockClient(List<PeerId> knownPeers) {
+        // 初始化 rpc
+        CliClientServiceImpl cliClientService = new CliClientServiceImpl();
+        cliClientService.init(new CliOptions());
+        this.rpcClient = cliClientService;
+        // 配置 raft 集群
         this.knownPeers = knownPeers;
-        BoltCliClientService clientService = new BoltCliClientService();
-        clientService.init(new CliOptions());
-        this.rpcClient = clientService.getRpcClient();
+        // 生成客户端id
+        this.clientId = buildClientId();
     }
 
     /**
      * 尝试申请锁，非阻塞（立即返回成功或失败，不排队等待）。
      */
-    public LockResponse tryLock(String lockKey, long ttlMs) {
+    public LockResponse tryLock(String lockKey, String threadId,long ttlMs) {
         String requestId = UUID.randomUUID().toString();
         LockRequest request = new LockRequest();
+        request.setRequestId(requestId);
         request.setType(LockCommandType.ACQUIRE);
         request.setLockKey(lockKey);
-        request.setClientId(buildClientId());
+        request.setClientId(clientId);
+        request.setThreadId(threadId);
         request.setTtlMs(ttlMs);
+        return sendWithRedirect(request);
+    }
+
+    /**
+     * 阻塞锁
+     */
+    public LockResponse lock(String lockKey, String threadId,long ttlMs) {
+        String requestId = UUID.randomUUID().toString();
+        LockRequest request = new LockRequest();
         request.setRequestId(requestId);
+        request.setType(LockCommandType.ACQUIRE);
+        request.setLockKey(lockKey);
+        request.setClientId(clientId);
+        request.setThreadId(threadId);
+        request.setTtlMs(ttlMs);
         return sendWithRedirect(request);
     }
 
@@ -83,17 +97,18 @@ public class DistributedLockClient {
      * @param lockKey      资源名称
      * @param fencingToken 申请锁时服务端返回的围栏令牌，必须原样传入
      * @return true 表示释放成功（或锁已不存在），false 表示校验失败
-     *
-     * <h3>实现步骤</h3>
-     * <ol>
-     *   <li>构造 LockRequest（type=RELEASE, lockKey, clientId, fencingToken）。</li>
-     *   <li>调用 {@link #sendWithRedirect(LockRequest)} 发送请求。</li>
-     *   <li>返回 response.isSuccess()。</li>
-     * </ol>
      */
-    public boolean unlock(String lockKey, long fencingToken) {
-        // TODO: 实现 unlock（见上方 Javadoc）
-        throw new UnsupportedOperationException("TODO: 实现 unlock");
+    public boolean unlock(String lockKey, String threadId,long fencingToken) {
+        String requestId = UUID.randomUUID().toString();
+        LockRequest request = new LockRequest();
+        request.setRequestId(requestId);
+        request.setType(LockCommandType.RELEASE);
+        request.setLockKey(lockKey);
+        request.setClientId(clientId);
+        request.setThreadId(threadId);
+        request.setFencingToken(fencingToken);
+        LockResponse lockResponse = sendWithRedirect(request);
+        return lockResponse.isSuccess();
     }
 
     /**
@@ -101,55 +116,108 @@ public class DistributedLockClient {
      *
      * @return true 表示续期成功
      */
-    public boolean renew(String lockKey, String clientId, long ttlMs) {
-        // TODO: 实现 renew（同 tryLock 流程，type=RENEW）
-        throw new UnsupportedOperationException("TODO: 实现 renew");
+    public boolean renew(String lockKey, String threadId, long fencingToken, long ttlMs) {
+        String requestId = UUID.randomUUID().toString();
+        LockRequest request = new LockRequest();
+        request.setRequestId(requestId);
+        request.setType(LockCommandType.RENEW);
+        request.setLockKey(lockKey);
+        request.setClientId(clientId);
+        request.setThreadId(threadId);
+        request.setFencingToken(fencingToken);
+        request.setTtlMs(ttlMs);
+        LockResponse lockResponse = sendWithRedirect(request);
+        return lockResponse.isSuccess();
     }
 
     /**
-     * 发送请求并自动处理 Leader 重定向。
-     *
-     * <h3>实现逻辑</h3>
-     * <ol>
-     *   <li>若 currentLeader 为 null，先调用 {@link #discoverLeader()}。</li>
-     *   <li>向 currentLeader 发送请求（同步调用 {@code rpcClient.invokeSync}）。</li>
-     *   <li>若响应 isRedirect()：
-     *     <ul>
-     *       <li>解析 response.getLeaderAddr() 更新 currentLeader。</li>
-     *       <li>重试，最多 MAX_RETRY 次。</li>
-     *     </ul>
-     *   </li>
-     *   <li>网络异常（TimeoutException 等）→ 将 currentLeader 置 null，重新发现后重试。</li>
-     * </ol>
+     * 发送请求并自动处理 Leader 重定向。 节点代理
      */
     private LockResponse sendWithRedirect(LockRequest request) {
-        // TODO: 实现带重定向的请求发送（见上方 Javadoc）
-        throw new UnsupportedOperationException("TODO: 实现 sendWithRedirect");
+        RpcClient rpc = rpcClient.getRpcClient();
+        for (int attempt = 0; attempt < MAX_RETRY; attempt++) {
+            if (currentLeader == null) {
+                discoverLeader();
+            }
+            try {
+                Object resp = rpc.invokeSync(currentLeader.getEndpoint(), request, null, RPC_TIMEOUT_MS);
+                if (!(resp instanceof LockResponse)) {
+                    throw new IllegalStateException("Unexpected response type: " + (resp == null ? "null" : resp.getClass().getName()));
+                }
+                LockResponse response = (LockResponse) resp;
+                if (response.isRedirect()) {
+                    String leaderAddr = response.getLeaderAddr();
+                    PeerId newLeader = new PeerId();
+                    if (leaderAddr != null && newLeader.parse(leaderAddr)) {
+                        LOG.info("Redirected to leader: {}", newLeader);
+                        currentLeader = newLeader;
+                    } else {
+                        currentLeader = null;
+                    }
+                    continue;
+                }
+                return response;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("RPC interrupted", e);
+            } catch (Exception e) {
+                LOG.warn("RPC to {} failed (attempt {}/{}): {}", currentLeader, attempt + 1, MAX_RETRY, e.getMessage());
+                currentLeader = null;
+            }
+        }
+        throw new IllegalStateException("Failed to send request after " + MAX_RETRY + " retries");
     }
 
     /**
      * 发现集群 Leader。
-     * 轮询 knownPeers，发送一个 ACQUIRE 或 ping 请求，
-     * 从 redirect 响应中拿到 leaderAddr，更新 currentLeader。
-     *
-     * <p><strong>提示</strong>：也可以通过 jraft 的 CliService 查询 Leader，
-     * 但直接走重定向更简单，不需要额外引入 jraft-rheakv-core。
      */
     private void discoverLeader() {
-        // TODO: 实现 Leader 发现（见上方 Javadoc）
-        throw new UnsupportedOperationException("TODO: 实现 discoverLeader");
+        RpcClient rpc = rpcClient.getRpcClient();
+        for (PeerId peer : knownPeers) {
+            try {
+                LockRequest probe = new LockRequest();
+                probe.setType(LockCommandType.ACQUIRE);
+                probe.setLockKey("__discover_probe__");
+                probe.setRequestId(UUID.randomUUID().toString());
+                probe.setClientId(clientId);
+                probe.setThreadId(Thread.currentThread().getName());
+                probe.setTtlMs(1);
+
+                Object resp = rpc.invokeSync(peer.getEndpoint(), probe, null, RPC_TIMEOUT_MS);
+                if (!(resp instanceof LockResponse)) {
+                    continue;
+                }
+                LockResponse response = (LockResponse) resp;
+                if (response.isRedirect() && response.getLeaderAddr() != null) {
+                    PeerId leader = new PeerId();
+                    if (leader.parse(response.getLeaderAddr())) {
+                        currentLeader = leader;
+                        LOG.info("Discovered leader via redirect from {}: {}", peer, leader);
+                        return;
+                    }
+                } else {
+                    currentLeader = peer;
+                    LOG.info("Discovered leader directly: {}", peer);
+                    return;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Leader discovery interrupted", e);
+            } catch (Exception e) {
+                LOG.warn("Failed to probe peer {}: {}", peer, e.getMessage());
+            }
+        }
+        throw new IllegalStateException("Failed to discover leader from peers: " + knownPeers);
     }
 
     /**
-     * 本客户端的唯一标识，建议格式：{hostname}_{pid}_{threadId}。
-     * 可在构造时通过 ManagementFactory.getRuntimeMXBean().getName() 获取 pid。
+     * 本客户端的唯一标识
      */
     private String buildClientId() {
-        // TODO: 构造并返回客户端唯一标识
         return "client-" + UUID.randomUUID().toString().substring(0, 8);
     }
 
     public void shutdown() {
-        // TODO: 关闭 rpcClient
+        rpcClient.shutdown();
     }
 }
