@@ -1,5 +1,7 @@
 package cn.ashersu.lock.statemachine;
 
+import cn.ashersu.lock.lock.LockType;
+
 /**
  * 状态机应用一条 LockCommand 后的处理结果，通过 Closure 回调传回给 RPC 处理器。
  *

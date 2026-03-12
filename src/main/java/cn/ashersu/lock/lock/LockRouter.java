@@ -2,7 +2,6 @@ package cn.ashersu.lock.lock;
 
 import cn.ashersu.lock.command.LockCommand;
 import cn.ashersu.lock.statemachine.LockResult;
-import cn.ashersu.lock.statemachine.LockType;
 
 import java.util.EnumMap;
 import java.util.Map;

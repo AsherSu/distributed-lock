@@ -2,6 +2,7 @@ package cn.ashersu.lock.server;
 
 import cn.ashersu.lock.command.LockCommand;
 import cn.ashersu.lock.command.LockCommandType;
+import cn.ashersu.lock.lock.LockNotifier;
 import cn.ashersu.lock.rpc.LockRequest;
 import cn.ashersu.lock.rpc.LockResponse;
 import cn.ashersu.lock.statemachine.LockClosure;

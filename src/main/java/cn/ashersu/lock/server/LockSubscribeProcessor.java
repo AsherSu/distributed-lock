@@ -1,5 +1,6 @@
 package cn.ashersu.lock.server;
 
+import cn.ashersu.lock.lock.LockNotifier;
 import cn.ashersu.lock.rpc.LockResponse;
 import cn.ashersu.lock.rpc.LockSubscribeRequest;
 import com.alipay.sofa.jraft.Node;

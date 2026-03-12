@@ -1,6 +1,6 @@
 package cn.ashersu.lock.command;
 
-import cn.ashersu.lock.statemachine.LockType;
+import cn.ashersu.lock.lock.LockType;
 import com.caucho.hessian.io.HessianInput;
 import com.caucho.hessian.io.HessianOutput;
 

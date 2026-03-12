@@ -1,4 +1,4 @@
-package cn.ashersu.lock.statemachine;
+package cn.ashersu.lock.lock;
 
 /**
  * 分布式锁的类型枚举。

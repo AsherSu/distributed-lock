@@ -1,5 +1,7 @@
 package cn.ashersu.lock.statemachine;
 
+import cn.ashersu.lock.lock.LockType;
+
 import java.io.Serializable;
 
 /**

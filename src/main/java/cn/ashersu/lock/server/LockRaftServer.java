@@ -1,5 +1,6 @@
 package cn.ashersu.lock.server;
 
+import cn.ashersu.lock.lock.LockNotifier;
 import cn.ashersu.lock.statemachine.LockStateMachine;
 import com.alipay.sofa.jraft.Node;
 import com.alipay.sofa.jraft.RaftGroupService;
@@ -11,7 +12,6 @@ import com.alipay.sofa.jraft.rpc.RpcServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.Arrays;

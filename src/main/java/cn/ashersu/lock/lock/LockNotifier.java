@@ -1,7 +1,7 @@
-package cn.ashersu.lock.server;
+package cn.ashersu.lock.lock;
 
 import cn.ashersu.lock.rpc.LockResponse;
-import cn.ashersu.lock.statemachine.LockType;
+import cn.ashersu.lock.server.LockServiceProcessor;
 import com.alipay.sofa.jraft.rpc.RpcContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

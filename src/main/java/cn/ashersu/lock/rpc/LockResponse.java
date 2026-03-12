@@ -1,6 +1,6 @@
 package cn.ashersu.lock.rpc;
 
-import cn.ashersu.lock.statemachine.LockType;
+import cn.ashersu.lock.lock.LockType;
 
 import java.io.Serializable;
 
