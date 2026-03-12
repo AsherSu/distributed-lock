@@ -70,6 +70,14 @@ public class LockResponse implements Serializable {
     public long getRemainingTtlMs() { return remainingTtlMs; }
     public void setRemainingTtlMs(long remainingTtlMs) { this.remainingTtlMs = remainingTtlMs; }
 
+    public LockType getLockType() {
+        return lockType;
+    }
+
+    public void setLockType(LockType lockType) {
+        this.lockType = lockType;
+    }
+
     /** 是否需要重定向到 Leader。 */
     public boolean isRedirect() { return leaderAddr != null && !leaderAddr.isEmpty(); }
 }
