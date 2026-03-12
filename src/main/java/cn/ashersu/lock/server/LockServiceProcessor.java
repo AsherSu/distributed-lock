@@ -1,6 +1,7 @@
 package cn.ashersu.lock.server;
 
 import cn.ashersu.lock.command.LockCommand;
+import cn.ashersu.lock.command.LockCommandType;
 import cn.ashersu.lock.rpc.LockRequest;
 import cn.ashersu.lock.rpc.LockResponse;
 import cn.ashersu.lock.statemachine.LockClosure;
@@ -46,9 +47,11 @@ public class LockServiceProcessor implements RpcProcessor<LockRequest> {
     private static final Logger LOG = LoggerFactory.getLogger(LockServiceProcessor.class);
 
     private final LockRaftServer raftServer;
+    private final LockNotifier notifier;
 
-    public LockServiceProcessor(LockRaftServer raftServer) {
+    public LockServiceProcessor(LockRaftServer raftServer, LockNotifier notifier) {
         this.raftServer = raftServer;
+        this.notifier = notifier;
     }
 
     /**
@@ -65,18 +68,9 @@ public class LockServiceProcessor implements RpcProcessor<LockRequest> {
         }
 
         // 构造锁命令
-        LockCommand cmd = null;
-        switch (request.getType()){
-            case ACQUIRE:
-                cmd = LockCommand.acquire(request.getLockKey(), request.getClientId(),request.getThreadId(), request.getTtlMs(), request.getRequestId());
-                break;
-            case RENEW:
-                cmd = LockCommand.renew(request.getLockKey(), request.getClientId(),request.getThreadId(), request.getTtlMs());
-                break;
-            case RELEASE:
-                cmd = LockCommand.release(request.getLockKey(), request.getClientId(),request.getThreadId(), request.getFencingToken());
-                break;
-        }
+        LockCommand cmd = buildLockCommand(request);
+
+        // 执行task
         LockClosure closure = new LockClosure();
         Task task = new Task();
         task.setData(LockCommand.encode(cmd));
@@ -90,9 +84,7 @@ public class LockServiceProcessor implements RpcProcessor<LockRequest> {
             if (closure.isOk()) {
                 // 达成共识，将状态机结果映射为 RPC 响应后返回
                 LockResult result = closure.getResult();
-                LockResponse response = result.isSuccess()
-                        ? LockResponse.success(result.getFencingToken())
-                        : LockResponse.fail(result.getMessage());
+                LockResponse response = buildOkResponse(request, result);
                 ctx.sendResponse(response);
             } else {
                 // 异常处理
@@ -101,13 +93,44 @@ public class LockServiceProcessor implements RpcProcessor<LockRequest> {
                     PeerId leader = node.getLeaderId();
                     ctx.sendResponse(LockResponse.redirect(leader != null ? leader.toString() : null));
                 } else {
-                    ctx.sendResponse(LockResponse.fail("Raft consensus error: " + status.getErrorMsg()));
+                    ctx.sendResponse(LockResponse.fail(request.getLockType(), "Raft consensus error: " + status.getErrorMsg()));
                 }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            ctx.sendResponse(LockResponse.fail("Server interrupted"));
+            ctx.sendResponse(LockResponse.fail(request.getLockType(), "Server interrupted"));
         }
+    }
+
+    private LockResponse buildOkResponse(LockRequest request, LockResult result) {
+        LockResponse response;
+        if (result.isSuccess()) {
+            response = LockResponse.success(result.getLockType(),result.getFencingToken());
+            // RELEASE 且 完全释放（重入次数归零）时，唤醒所有等待该锁的客户端
+            if (request.getType() == LockCommandType.RELEASE && result.getReentrantTimes() <= 0) {
+                notifier.notify(request.getLockType(),request.getLockKey());
+            }
+        } else {
+            response = LockResponse.fail(result.getLockType(), result.getMessage());
+            response.setRemainingTtlMs(result.getRemainingTtlMs());
+        }
+        return response;
+    }
+
+    private static LockCommand buildLockCommand(LockRequest request) {
+        LockCommand cmd = null;
+        switch (request.getType()){
+            case ACQUIRE:
+                cmd = LockCommand.acquire(request.getLockType(),request.getLockKey(), request.getClientId(), request.getThreadId(), request.getTtlMs(), request.getRequestId());
+                break;
+            case RENEW:
+                cmd = LockCommand.renew(request.getLockType(),request.getLockKey(), request.getClientId(), request.getThreadId(), request.getTtlMs());
+                break;
+            case RELEASE:
+                cmd = LockCommand.release(request.getLockType(),request.getLockKey(), request.getClientId(), request.getThreadId(), request.getFencingToken());
+                break;
+        }
+        return cmd;
     }
 
     /**

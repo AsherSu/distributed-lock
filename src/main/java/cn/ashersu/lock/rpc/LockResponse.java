@@ -1,5 +1,7 @@
 package cn.ashersu.lock.rpc;
 
+import cn.ashersu.lock.statemachine.LockType;
+
 import java.io.Serializable;
 
 /**
@@ -12,34 +14,34 @@ public class LockResponse implements Serializable {
     /** 操作是否成功。 */
     private boolean success;
 
-    /**
-     * ACQUIRE 成功时服务端返回的围栏令牌，客户端需要保存，
-     * 后续 RELEASE 时原样带回。
-     * 其他情况下为 -1。
-     */
+    private LockType lockType;
+
+    /** 防护token */
     private long fencingToken = -1;
 
-    /**
-     * 当前节点不是 Leader 时，通过此字段告知客户端真正的 Leader 地址（ip:port），
-     * 客户端收到后应重定向请求。格式与 jraft PeerId 的 toString() 一致。
-     */
+    /** leader地址 */
     private String leaderAddr;
+
+    /** 锁的有效时间 */
+    private long remainingTtlMs;
 
     /** 失败原因描述，便于客户端日志排查。 */
     private String errorMsg;
 
     public LockResponse() {}
 
-    public static LockResponse success(long fencingToken) {
+    public static LockResponse success(LockType lockType,long fencingToken) {
         LockResponse r = new LockResponse();
         r.success = true;
         r.fencingToken = fencingToken;
+        r.lockType=lockType;
         return r;
     }
 
-    public static LockResponse fail(String errorMsg) {
+    public static LockResponse fail(LockType lockType,String errorMsg) {
         LockResponse r = new LockResponse();
         r.success = false;
+        r.lockType=lockType;
         r.errorMsg = errorMsg;
         return r;
     }
@@ -64,6 +66,9 @@ public class LockResponse implements Serializable {
 
     public String getErrorMsg() { return errorMsg; }
     public void setErrorMsg(String errorMsg) { this.errorMsg = errorMsg; }
+
+    public long getRemainingTtlMs() { return remainingTtlMs; }
+    public void setRemainingTtlMs(long remainingTtlMs) { this.remainingTtlMs = remainingTtlMs; }
 
     /** 是否需要重定向到 Leader。 */
     public boolean isRedirect() { return leaderAddr != null && !leaderAddr.isEmpty(); }

@@ -11,6 +11,8 @@ public class LockEntry implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    private LockType lockType;
+
     /**
      * 锁的资源名称，与 Map 的 key 相同（冗余存储，方便日志打印）。
      */
@@ -40,7 +42,8 @@ public class LockEntry implements Serializable {
 
     public LockEntry() {}
 
-    public LockEntry(String lockKey, String ownerId, long expireTime, long fencingToken) {
+    public LockEntry(LockType lockType,String lockKey, String ownerId, long expireTime, long fencingToken) {
+        this.lockType=lockType;
         this.lockKey = lockKey;
         this.ownerId = ownerId;
         this.expireTime = expireTime;
@@ -50,6 +53,14 @@ public class LockEntry implements Serializable {
     /** 判断当前锁是否已过期（懒清理入口）。 */
     public boolean isExpired() {
         return System.currentTimeMillis() > expireTime;
+    }
+
+    public LockType getLockType() {
+        return lockType;
+    }
+
+    public void setLockType(LockType lockType) {
+        this.lockType = lockType;
     }
 
     public String getLockKey() { return lockKey; }
@@ -74,7 +85,8 @@ public class LockEntry implements Serializable {
     @Override
     public String toString() {
         return "LockEntry{" +
-                "lockKey='" + lockKey + '\'' +
+                "lockType=" + lockType +
+                ", lockKey='" + lockKey + '\'' +
                 ", ownerId='" + ownerId + '\'' +
                 ", expireTime=" + expireTime +
                 ", fencingToken=" + fencingToken +

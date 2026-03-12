@@ -46,6 +46,7 @@ public class LockRaftServer {
     private RaftGroupService raftGroupService;
     private Node node;
     private LockStateMachine stateMachine;
+    private LockNotifier notifier;
 
     /**
      * 启动 Raft 节点。
@@ -57,8 +58,10 @@ public class LockRaftServer {
      *
      */
     public void start(String dataPath, String groupId, PeerId serverId, Configuration initConf) throws IOException {
+        this.stateMachine = new LockStateMachine();
+        this.notifier = new LockNotifier();
         NodeOptions opts = new NodeOptions();
-        opts.setFsm(stateMachine);        // 注册状态机
+        opts.setFsm(stateMachine);                // 注册状态机
         opts.setLogUri(dataPath + "\\log");       // Raft 日志路径（RocksDB）
         opts.setRaftMetaUri(dataPath + "\\meta"); // 元数据路径（term、voteFor 等）
         opts.setSnapshotUri(dataPath + "\\snapshot"); // 快照路径
@@ -66,7 +69,8 @@ public class LockRaftServer {
         opts.setElectionTimeoutMs(5000);         // 选举超时（建议 3~10 倍心跳间隔）
         opts.setSnapshotIntervalSecs(30);        // 快照间隔（秒）
         RpcServer rpcServer = RaftRpcServerFactory.createRaftRpcServer(serverId.getEndpoint());
-        rpcServer.registerProcessor(new LockServiceProcessor(this));
+        rpcServer.registerProcessor(new LockServiceProcessor(this, notifier));
+        rpcServer.registerProcessor(new LockSubscribeProcessor(this, notifier));
         this.raftGroupService = new RaftGroupService(groupId, serverId, opts, rpcServer);
         this.node = raftGroupService.start();
     }

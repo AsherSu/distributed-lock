@@ -3,6 +3,7 @@ package cn.ashersu.lock.client;
 import cn.ashersu.lock.command.LockCommandType;
 import cn.ashersu.lock.rpc.LockRequest;
 import cn.ashersu.lock.rpc.LockResponse;
+import cn.ashersu.lock.rpc.LockSubscribeRequest;
 import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.option.CliOptions;
 import com.alipay.sofa.jraft.rpc.RpcClient;
@@ -12,6 +13,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 分布式锁客户端，对外暴露 {@link #tryLock} / {@link #unlock} / {@link #renew} 接口。
@@ -37,12 +40,11 @@ public class DistributedLockClient {
     /** 当前已知的 Leader 节点，初始为 null，首次请求时通过重定向发现。 */
     private volatile PeerId currentLeader;
 
-    /**
-     * jraft 提供的 RPC 客户端服务。
-     */
+    /** jraft 提供的 RPC 客户端服务。*/
     private CliClientServiceImpl rpcClient;
 
-    private String clientId;
+    // 客户端唯一标识
+    private final String clientId;
 
     /** RPC 超时（毫秒）。 */
     private static final int RPC_TIMEOUT_MS = 5_000;
@@ -62,24 +64,74 @@ public class DistributedLockClient {
     }
 
     /**
-     * 尝试申请锁，非阻塞（立即返回成功或失败，不排队等待）。
+     * 阻塞式加锁，直到成功获取锁为止（可被中断）。
+     *
+     * <h3>实现策略（Redisson 风格）</h3>
+     * <ol>
+     *   <li>调用 {@link #tryLock} 尝试一次。</li>
+     *   <li>若失败，从响应中读取锁的剩余 TTL，向 Leader 发送订阅请求（长轮询）。</li>
+     *   <li>本地通过 {@link Semaphore#tryAcquire} 挂起线程，最多等待 TTL 毫秒。</li>
+     *   <li>当 Leader 通知锁已释放（或等待超时），Semaphore 被释放，线程醒来重试。</li>
+     * </ol>
+     *
+     * @param lockKey  资源名称
+     * @param threadId 当前线程标识（用于可重入判断）
+     * @param ttlMs    每次成功加锁后的过期时间（毫秒）
+     * @return 成功加锁后的 {@link LockResponse}（含 fencingToken）
+     * @throws InterruptedException 若线程在等待过程中被中断
      */
-    public LockResponse tryLock(String lockKey, String threadId,long ttlMs) {
-        String requestId = UUID.randomUUID().toString();
-        LockRequest request = new LockRequest();
-        request.setRequestId(requestId);
-        request.setType(LockCommandType.ACQUIRE);
-        request.setLockKey(lockKey);
-        request.setClientId(clientId);
-        request.setThreadId(threadId);
-        request.setTtlMs(ttlMs);
-        return sendWithRedirect(request);
+    public LockResponse lock(String lockKey, String threadId, long ttlMs) throws InterruptedException {
+        while (true) {
+            LockResponse response = tryLock(lockKey, threadId, ttlMs);
+            if (response.isSuccess()) {
+                return response;
+            }
+
+            // 取锁的剩余 TTL 作为订阅等待的上限；若未携带则使用请求的 ttlMs
+            long waitMs = response.getRemainingTtlMs() > 0 ? response.getRemainingTtlMs() : ttlMs;
+
+            // Semaphore 初始计数为 0，线程将在 tryAcquire 处挂起
+            Semaphore semaphore = new Semaphore(0);
+            subscribeAsync(lockKey, semaphore, waitMs);
+
+            // 挂起，直到：① 服务端推送锁释放通知；② 等待超时；③ 线程被中断
+            semaphore.tryAcquire(waitMs, TimeUnit.MILLISECONDS);
+        }
     }
 
     /**
-     * 阻塞锁
+     * 向 Leader 异步发送订阅请求（长轮询），通过守护线程实现非阻塞等待。
+     *
+     * <p>守护线程调用 {@code invokeSync} 阻塞等待服务端响应。
+     * 服务端在锁释放时才回复，触发 {@code semaphore.release()}，唤醒调用方线程。
+     * 若网络异常或超时，同样释放信号量，使调用方能够重试。
      */
-    public LockResponse lock(String lockKey, String threadId,long ttlMs) {
+    private void subscribeAsync(String lockKey, Semaphore semaphore, long timeoutMs) {
+        if (currentLeader == null) {
+            semaphore.release();
+            return;
+        }
+        final PeerId leader = currentLeader;
+        final RpcClient rpc = rpcClient.getRpcClient();
+        final LockSubscribeRequest req = new LockSubscribeRequest(lockKey, clientId);
+        Thread t = new Thread(() -> {
+            try {
+                rpc.invokeSync(leader.getEndpoint(), req, null, timeoutMs);
+            } catch (Exception e) {
+                LOG.warn("Subscribe for lock '{}' ended: {}", lockKey, e.getMessage());
+                currentLeader = null;
+            } finally {
+                semaphore.release();
+            }
+        }, "lock-sub-" + lockKey);
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /**
+     * 尝试申请锁，非阻塞（立即返回成功或失败，不排队等待）。
+     */
+    public LockResponse tryLock(String lockKey, String threadId,long ttlMs) {
         String requestId = UUID.randomUUID().toString();
         LockRequest request = new LockRequest();
         request.setRequestId(requestId);

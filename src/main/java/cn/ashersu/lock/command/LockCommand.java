@@ -1,5 +1,6 @@
 package cn.ashersu.lock.command;
 
+import cn.ashersu.lock.statemachine.LockType;
 import com.caucho.hessian.io.HessianInput;
 import com.caucho.hessian.io.HessianOutput;
 
@@ -25,48 +26,34 @@ public class LockCommand implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 全局唯一请求 ID，用于实现幂等性。
-     * 状态机应记录已处理的 requestId，重复请求直接返回上次结果。
-     */
+    // 全局唯一请求 ID，用于实现幂等性。
     private String requestId;
 
-    /**
-     * 命令类型
-     */
+    // 命令类型
     private LockCommandType type;
 
-    /**
-     * 被锁定的资源名称
-     */
+    // 锁类型
+    private LockType lockType;
+
+    // 被锁定的资源名称
     private String lockKey;
 
     // 确保锁的归属
-    /**
-     * 客户端标识
-     */
     private String clientId;
-    /**
-     * 线程标识
-     */
     private String threadId;
 
-    /**
-     * 锁的存活时长（毫秒）。
-     * ACQUIRE / RENEW 时有效；RELEASE 时忽略。
-     */
+    // 锁的存活时长（毫秒）。
     private long ttlMs;
 
-    /**
-     * 围栏令牌（Fencing Token），利用递增的特性，保护下游资源。防止stw导致锁过期
-     */
+    // 围栏令牌（Fencing Token），利用递增的特性，保护下游资源。防止stw导致锁过期
     private long fencingToken;
 
     public LockCommand() {
     }
 
-    public static LockCommand acquire(String lockKey, String clientId,String threadId, long ttlMs, String requestId) {
+    public static LockCommand acquire(LockType lockType,String lockKey, String clientId,String threadId, long ttlMs, String requestId) {
         LockCommand cmd = new LockCommand();
+        cmd.lockType = lockType;
         cmd.type = LockCommandType.ACQUIRE;
         cmd.lockKey = lockKey;
         cmd.clientId = clientId;
@@ -76,8 +63,9 @@ public class LockCommand implements Serializable {
         return cmd;
     }
 
-    public static LockCommand release(String lockKey, String clientId,String threadId, long fencingToken) {
+    public static LockCommand release(LockType lockType,String lockKey, String clientId,String threadId, long fencingToken) {
         LockCommand cmd = new LockCommand();
+        cmd.lockType = lockType;
         cmd.type = LockCommandType.RELEASE;
         cmd.lockKey = lockKey;
         cmd.clientId = clientId;
@@ -86,8 +74,9 @@ public class LockCommand implements Serializable {
         return cmd;
     }
 
-    public static LockCommand renew(String lockKey, String clientId,String threadId, long ttlMs) {
+    public static LockCommand renew(LockType lockType,String lockKey, String clientId,String threadId, long ttlMs) {
         LockCommand cmd = new LockCommand();
+        cmd.lockType = lockType;
         cmd.type = LockCommandType.RENEW;
         cmd.lockKey = lockKey;
         cmd.clientId = clientId;
@@ -176,5 +165,13 @@ public class LockCommand implements Serializable {
 
     public String getClientIdentify() {
         return clientId+":"+threadId;
+    }
+
+    public LockType getLockType() {
+        return lockType;
+    }
+
+    public void setLockType(LockType lockType) {
+        this.lockType = lockType;
     }
 }

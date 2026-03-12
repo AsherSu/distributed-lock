@@ -19,41 +19,66 @@ public class LockResult {
         ERROR
     }
 
+    //锁的类型
+    private final LockType lockType;
+
+    // 锁的状态
     private final Status status;
 
-    /**
-     * ACQUIRE 成功时返回的围栏令牌，客户端保存后用于 RELEASE 校验。
-     * 其他情况下值为 -1。
-     */
+    // 防护令牌
     private final long fencingToken;
 
-    /** 附加的错误或提示信息，便于调试。 */
+    // 锁的剩余时间
+    private final long remainingTtlMs;
+
+    // 重入次数
+    private final long reentrantTimes;
+
+    // 相关信息
     private final String message;
 
-    private LockResult(Status status, long fencingToken, String message) {
-        this.status = status;
+    private LockResult(LockType lockType,Status status, long fencingToken, String message, long remainingTtlMs, long reentrantTimes) {
+        this.lockType = lockType;
+        this.status =status;
         this.fencingToken = fencingToken;
         this.message = message;
+        this.remainingTtlMs = remainingTtlMs;
+        this.reentrantTimes = reentrantTimes;
     }
 
-    public static LockResult success(long fencingToken) {
-        return new LockResult(Status.SUCCESS, fencingToken, null);
+    public static LockResult success(LockType lockType,long fencingToken) {
+        return new LockResult(lockType,Status.SUCCESS, fencingToken, null, 0,-1);
     }
 
-    public static LockResult locked(String message) {
-        return new LockResult(Status.LOCKED, -1, message);
+    public static LockResult locked(LockType lockType,String message, long remainingTtlMs) {
+        return new LockResult(lockType,Status.LOCKED, -1, message, remainingTtlMs,-1);
     }
 
-    public static LockResult stale(String message) {
-        return new LockResult(Status.STALE, -1, message);
+    public static LockResult locked(LockType lockType,String message, long remainingTtlMs,long reentrantTimes) {
+        return new LockResult(lockType,Status.LOCKED, -1, message, remainingTtlMs,reentrantTimes);
     }
 
-    public static LockResult error(String message) {
-        return new LockResult(Status.ERROR, -1, message);
+    public static LockResult locked(LockType lockType,String message) {
+        return new LockResult(lockType,Status.LOCKED, -1, message, 0,-1);
+    }
+
+    public static LockResult stale(LockType lockType,String message) {
+        return new LockResult(lockType,Status.STALE, -1, message, 0,-1);
+    }
+
+    public static LockResult error(LockType lockType,String message) {
+        return new LockResult(lockType,Status.ERROR, -1, message, 0,-1);
     }
 
     public boolean isSuccess() { return status == Status.SUCCESS; }
     public Status getStatus() { return status; }
     public long getFencingToken() { return fencingToken; }
     public String getMessage() { return message; }
+    public long getRemainingTtlMs() { return remainingTtlMs; }
+    public long getReentrantTimes() {
+        return reentrantTimes;
+    }
+    public LockType getLockType() {
+        return lockType;
+    }
 }

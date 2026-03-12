@@ -1,15 +1,12 @@
 package cn.ashersu.lock.rpc;
 
 import cn.ashersu.lock.command.LockCommandType;
+import cn.ashersu.lock.statemachine.LockType;
 
 import java.io.Serializable;
 
 /**
- * 客户端通过 Bolt RPC 发给 Raft 节点的请求消息。
- *
- * <p>jraft 的 Bolt RPC 要求消息类实现 {@link Serializable}，
- * 同时需要在 {@code RpcServer} 中通过 {@code registerProcessor} 注册对应的处理器，
- * 处理器通过 {@code interest()} 方法返回此类的全限定名来关联。
+ * 请求入口
  */
 public class LockRequest implements Serializable {
 
@@ -17,6 +14,8 @@ public class LockRequest implements Serializable {
 
     /** 请求类型，用于 RPC 处理器内部路由到对应逻辑。 */
     private LockCommandType type;
+
+    private LockType lockType;
 
     /** 目标锁资源名称。 */
     private String lockKey;
@@ -65,4 +64,12 @@ public class LockRequest implements Serializable {
     public void setThreadId(String threadId) {
 		this.threadId = threadId;
 	}
+
+    public LockType getLockType() {
+        return lockType;
+    }
+
+    public void setLockType(LockType lockType) {
+        this.lockType = lockType;
+    }
 }
