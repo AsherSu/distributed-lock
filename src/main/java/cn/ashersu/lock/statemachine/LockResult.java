@@ -52,6 +52,10 @@ public class LockResult {
         return new LockResult(lockType,Status.SUCCESS, fencingToken, null, 0,-1);
     }
 
+    public static LockResult locked(LockType lockType, long fencingToken, long remainingTtlMs, long reentrantTimes) {
+        return new LockResult(lockType, Status.SUCCESS, fencingToken, null, remainingTtlMs, reentrantTimes);
+    }
+
     public static LockResult locked(LockType lockType,String message, long remainingTtlMs) {
         return new LockResult(lockType,Status.LOCKED, -1, message, remainingTtlMs,-1);
     }

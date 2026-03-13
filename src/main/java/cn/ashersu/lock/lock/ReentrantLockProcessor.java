@@ -42,8 +42,10 @@ public class ReentrantLockProcessor implements LockProcessor{
     private LockResult applyAcquire(LockCommand cmd) {
         LockEntry existing = reentrantLockStore.get(cmd.getLockKey());
         if (existing == null || existing.isExpired()) {
-            // 无锁
+            // 无锁或锁已过期，授予新锁
+            reentrantLockStore.remove(cmd.getLockKey());
             LockEntry lockNew = new LockEntry();
+            lockNew.setLockType(cmd.getLockType());
             lockNew.setLockKey(cmd.getLockKey());
             lockNew.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs());
             lockNew.setOwnerId(cmd.getClientIdentify());
@@ -52,14 +54,14 @@ public class ReentrantLockProcessor implements LockProcessor{
             reentrantLockStore.put(cmd.getLockKey(), lockNew);
             return LockResult.success(cmd.getLockType(), lockNew.getFencingToken());
         } else if (existing.getOwnerId().equals(cmd.getClientIdentify())) {
-            // 锁重入
+            // 同一持锁方重入：递增计数，重置过期时间
             existing.setReentrantTimes(existing.getReentrantTimes() + 1);
             existing.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs());
             return LockResult.success(cmd.getLockType(), existing.getFencingToken());
         } else {
-            // 他人持有，返回剩余 TTL 供客户端等待
+            // 他人持有，返回剩余 TTL 供客户端决策等待时长
             long remaining = Math.max(0L, existing.getExpireTime() - System.currentTimeMillis());
-            return LockResult.locked(cmd.getLockType(), "Lock held by " + existing.getOwnerId(), remaining, existing.getReentrantTimes());
+            return LockResult.locked(cmd.getLockType(), "Lock held by " + existing.getOwnerId(), remaining);
         }
     }
 
@@ -79,15 +81,15 @@ public class ReentrantLockProcessor implements LockProcessor{
             // 令牌不一致
             return LockResult.stale(cmd.getLockType(), "fencing token do not same");
         } else {
-            if (existing.getReentrantTimes() == 1) {
-                // 解锁
+            if (existing.getReentrantTimes() <= 1) {
+                // 完全解锁
                 reentrantLockStore.remove(cmd.getLockKey());
                 return LockResult.success(cmd.getLockType(), existing.getFencingToken());
             } else {
-                // 重入锁解锁
+                // 部分解锁：重入次数递减，锁仍由自己持有
                 existing.setReentrantTimes(existing.getReentrantTimes() - 1);
-                long expireTime = existing.getExpireTime() - System.currentTimeMillis();
-                return LockResult.locked(cmd.getLockType(), "unLock reentrant lock", expireTime, existing.getReentrantTimes());
+                long remaining = Math.max(0L, existing.getExpireTime() - System.currentTimeMillis());
+                return LockResult.locked(cmd.getLockType(), existing.getFencingToken(), remaining, existing.getReentrantTimes());
             }
         }
     }
@@ -116,6 +118,7 @@ public class ReentrantLockProcessor implements LockProcessor{
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public void loadSnapshot(ObjectInputStream in) throws Exception {
         reentrantLockStore = (ConcurrentHashMap<String, LockEntry>) in.readObject();
     }
