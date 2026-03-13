@@ -46,7 +46,7 @@ public class MutexLockProcessor implements LockProcessor {
             LockEntry lockNew = new LockEntry();
             lockNew.setLockKey(cmd.getLockKey());
             lockNew.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs());
-            lockNew.setOwnerId(cmd.getClientId());
+            lockNew.setOwnerId(cmd.getClientIdentify());
             lockNew.setFencingToken(fencingTokenCounter.incrementAndGet());
             mutexLockStore.put(cmd.getLockKey(), lockNew);
             return LockResult.success(cmd.getLockType(), lockNew.getFencingToken());
