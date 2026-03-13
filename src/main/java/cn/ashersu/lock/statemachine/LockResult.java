@@ -60,16 +60,20 @@ public class LockResult {
         return new LockResult(lockType,Status.LOCKED, -1, message, remainingTtlMs,reentrantTimes);
     }
 
+    public static LockResult fairLocked(LockType lockType,String message) {
+        return new LockResult(lockType,Status.LOCKED, -1, message,-1,-1);
+    }
+
     public static LockResult locked(LockType lockType,String message) {
-        return new LockResult(lockType,Status.LOCKED, -1, message, 0,-1);
+        return new LockResult(lockType,Status.LOCKED, -1, message, -1,-1);
     }
 
     public static LockResult stale(LockType lockType,String message) {
-        return new LockResult(lockType,Status.STALE, -1, message, 0,-1);
+        return new LockResult(lockType,Status.STALE, -1, message, -1,-1);
     }
 
     public static LockResult error(LockType lockType,String message) {
-        return new LockResult(lockType,Status.ERROR, -1, message, 0,-1);
+        return new LockResult(lockType,Status.ERROR, -1, message, -1,-1);
     }
 
     public boolean isSuccess() { return status == Status.SUCCESS; }

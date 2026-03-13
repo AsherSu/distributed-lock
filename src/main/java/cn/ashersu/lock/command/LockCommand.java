@@ -48,6 +48,9 @@ public class LockCommand implements Serializable {
     // 围栏令牌（Fencing Token），利用递增的特性，保护下游资源。防止stw导致锁过期
     private long fencingToken;
 
+    // 锁的等待时间
+    private long waitTime;
+
     public LockCommand() {
     }
 
@@ -173,5 +176,17 @@ public class LockCommand implements Serializable {
 
     public void setLockType(LockType lockType) {
         this.lockType = lockType;
+    }
+
+    public void setRequestId(String requestId) {
+        this.requestId = requestId;
+    }
+
+    public long getWaitTime() {
+        return waitTime;
+    }
+
+    public void setWaitTime(long waitTime) {
+        this.waitTime = waitTime;
     }
 }

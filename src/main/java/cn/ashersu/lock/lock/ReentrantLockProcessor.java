@@ -46,12 +46,12 @@ public class ReentrantLockProcessor implements LockProcessor{
             LockEntry lockNew = new LockEntry();
             lockNew.setLockKey(cmd.getLockKey());
             lockNew.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs());
-            lockNew.setOwnerId(cmd.getClientId());
+            lockNew.setOwnerId(cmd.getClientIdentify());
             lockNew.setReentrantTimes(1L);
             lockNew.setFencingToken(fencingTokenCounter.incrementAndGet());
             reentrantLockStore.put(cmd.getLockKey(), lockNew);
             return LockResult.success(cmd.getLockType(), lockNew.getFencingToken());
-        } else if (existing.getOwnerId().equals(cmd.getClientId())) {
+        } else if (existing.getOwnerId().equals(cmd.getClientIdentify())) {
             // 锁重入
             existing.setReentrantTimes(existing.getReentrantTimes() + 1);
             existing.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs());

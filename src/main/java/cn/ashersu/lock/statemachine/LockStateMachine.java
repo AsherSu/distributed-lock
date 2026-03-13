@@ -2,9 +2,7 @@ package cn.ashersu.lock.statemachine;
 
 import cn.ashersu.lock.command.LockCommand;
 import cn.ashersu.lock.command.LockCommandType;
-import cn.ashersu.lock.lock.LockProcessor;
-import cn.ashersu.lock.lock.LockRouter;
-import cn.ashersu.lock.lock.MutexLockProcessor;
+import cn.ashersu.lock.lock.*;
 import cn.ashersu.lock.rpc.LockResponse;
 import com.alipay.sofa.jraft.Closure;
 import com.alipay.sofa.jraft.Iterator;
@@ -40,6 +38,8 @@ public class LockStateMachine extends StateMachineAdapter {
 
     {
         router.registerProcessor(new MutexLockProcessor());
+        router.registerProcessor(new ReentrantLockProcessor());
+        router.registerProcessor(new FairLockProcessor());
     }
 
     /**

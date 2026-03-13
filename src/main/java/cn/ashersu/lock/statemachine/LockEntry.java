@@ -3,6 +3,7 @@ package cn.ashersu.lock.statemachine;
 import cn.ashersu.lock.lock.LockType;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * 状态机内存中维护的锁状态单元，保存在 {@code LockStateMachine#lockStore} 的 Map 值中。
@@ -41,6 +42,9 @@ public class LockEntry implements Serializable {
      * 锁的重入次数
      */
     private long reentrantTimes;
+
+    // 等待锁的实践
+    private long waitTime;
 
     public LockEntry() {}
 
@@ -84,6 +88,14 @@ public class LockEntry implements Serializable {
         this.reentrantTimes = reentrantTimes;
     }
 
+    public long getWaitTime() {
+        return waitTime;
+    }
+
+    public void setWaitTime(long waitTime) {
+        this.waitTime = waitTime;
+    }
+
     @Override
     public String toString() {
         return "LockEntry{" +
@@ -93,6 +105,7 @@ public class LockEntry implements Serializable {
                 ", expireTime=" + expireTime +
                 ", fencingToken=" + fencingToken +
                 ", reentrantTimes=" + reentrantTimes +
+                ", waitTime=" + waitTime +
                 '}';
     }
 }
