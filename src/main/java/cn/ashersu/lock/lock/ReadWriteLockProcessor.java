@@ -226,10 +226,6 @@ public class ReadWriteLockProcessor implements LockProcessor {
         return LockResult.success(LockType.WRITE, state.writer.getFencingToken());
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
     private LockEntry buildEntry(LockCommand cmd, LockType type) {
         LockEntry entry = new LockEntry();
         entry.setLockType(type);
