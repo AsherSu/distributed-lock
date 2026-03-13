@@ -35,10 +35,14 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class ReadWriteLockProcessor implements LockProcessor {
 
-    /** 每个 lockKey 的读写锁状态 */
+    /**
+     * 每个 lockKey 的读写锁状态
+     */
     private ConcurrentHashMap<String, RwState> rwStore = new ConcurrentHashMap<>();
 
-    /** fencing token 生成器，全局单调递增 */
+    /**
+     * fencing token 生成器，全局单调递增
+     */
     private final AtomicLong fencingTokenCounter = new AtomicLong(0);
 
     // -------------------------------------------------------------------------
@@ -53,17 +57,16 @@ public class ReadWriteLockProcessor implements LockProcessor {
     @Override
     public LockResult process(LockCommand cmd) {
         switch (cmd.getType()) {
-            case ACQUIRE: return applyAcquire(cmd);
-            case RELEASE: return applyRelease(cmd);
-            case RENEW:   return applyRenew(cmd);
+            case ACQUIRE:
+                return applyAcquire(cmd);
+            case RELEASE:
+                return applyRelease(cmd);
+            case RENEW:
+                return applyRenew(cmd);
             default:
                 return LockResult.error(cmd.getLockType(), "Unknown command type: " + cmd.getType());
         }
     }
-
-    // -------------------------------------------------------------------------
-    // ACQUIRE
-    // -------------------------------------------------------------------------
 
     private LockResult applyAcquire(LockCommand cmd) {
         RwState state = rwStore.computeIfAbsent(cmd.getLockKey(), k -> new RwState());
@@ -87,6 +90,7 @@ public class ReadWriteLockProcessor implements LockProcessor {
         LockEntry existing = state.readers.get(cmd.getClientIdentify());
         if (existing != null) {
             existing.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs());
+            existing.setReentrantTimes(existing.getReentrantTimes() + 1);
             return LockResult.success(LockType.READ, existing.getFencingToken());
         }
 
@@ -139,29 +143,43 @@ public class ReadWriteLockProcessor implements LockProcessor {
     }
 
     private LockResult applyReadRelease(LockCommand cmd, RwState state) {
+        // 锁的存在问题
         if (state == null) {
             return LockResult.success(LockType.READ, -1);
         }
+        // 锁的归属
         LockEntry entry = state.readers.get(cmd.getClientIdentify());
         if (entry == null || entry.isExpired()) {
             state.readers.remove(cmd.getClientIdentify());
             return LockResult.success(LockType.READ, -1);
         }
+        // 令牌
         if (entry.getFencingToken() != cmd.getFencingToken()) {
             return LockResult.stale(LockType.READ, "Fencing token mismatch");
         }
-        state.readers.remove(cmd.getClientIdentify());
-        return LockResult.success(LockType.READ, entry.getFencingToken());
+        if (entry.getReentrantTimes() <= 1) {
+            // 重入层数归零，完全释放
+            state.readers.remove(cmd.getClientIdentify());
+            return LockResult.success(LockType.READ, entry.getFencingToken());
+        } else {
+            // 部分解锁：递减重入计数，读锁仍由自己持有
+            entry.setReentrantTimes(entry.getReentrantTimes() - 1);
+            long remaining = Math.max(0L, entry.getExpireTime() - System.currentTimeMillis());
+            return LockResult.locked(LockType.READ, entry.getFencingToken(), remaining, entry.getReentrantTimes());
+        }
     }
 
     private LockResult applyWriteRelease(LockCommand cmd, RwState state) {
+        // 锁的存在问题
         if (state == null || state.writer == null || state.writer.isExpired()) {
             if (state != null) state.writer = null;
             return LockResult.success(LockType.WRITE, -1);
         }
+        // 锁的归属
         if (!state.writer.getOwnerId().equals(cmd.getClientIdentify())) {
             return LockResult.stale(LockType.WRITE, "Write lock is not owned by you");
         }
+        // 令牌
         if (state.writer.getFencingToken() != cmd.getFencingToken()) {
             return LockResult.stale(LockType.WRITE, "Fencing token mismatch");
         }
@@ -219,10 +237,16 @@ public class ReadWriteLockProcessor implements LockProcessor {
         entry.setOwnerId(cmd.getClientIdentify());
         entry.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs());
         entry.setFencingToken(fencingTokenCounter.incrementAndGet());
+        // 读锁支持重入，首次加锁计数为 1
+        if (type == LockType.READ) {
+            entry.setReentrantTimes(1L);
+        }
         return entry;
     }
 
-    /** 清理 state 中所有已过期的读锁条目和写锁 */
+    /**
+     * 清理 state 中所有已过期的读锁条目和写锁
+     */
     private void cleanExpired(RwState state) {
         if (state.writer != null && state.writer.isExpired()) {
             state.writer = null;
@@ -255,10 +279,14 @@ public class ReadWriteLockProcessor implements LockProcessor {
 
         private static final long serialVersionUID = 1L;
 
-        /** 当前所有活跃读锁：ownerId(clientId:threadId) → LockEntry */
+        /**
+         * 当前所有活跃读锁：ownerId(clientId:threadId) → LockEntry
+         */
         final Map<String, LockEntry> readers = new HashMap<>();
 
-        /** 当前写锁持有方；null 表示无写锁 */
+        /**
+         * 当前写锁持有方；null 表示无写锁
+         */
         LockEntry writer;
     }
 }
