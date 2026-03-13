@@ -44,6 +44,7 @@ public class MutexLockProcessor implements LockProcessor {
         if (existing == null || existing.isExpired()) {
             // 无锁
             LockEntry lockNew = new LockEntry();
+            lockNew.setLockType(cmd.getLockType());
             lockNew.setLockKey(cmd.getLockKey());
             lockNew.setOwnerId(cmd.getClientIdentify());
             lockNew.setExpireTime(System.currentTimeMillis() + cmd.getTtlMs());
@@ -99,11 +100,13 @@ public class MutexLockProcessor implements LockProcessor {
     @Override
     public void saveSnapshot(ObjectOutputStream out) throws Exception {
         out.writeObject(mutexLockStore);
+        out.writeLong(fencingTokenCounter.get());
         out.flush();
     }
 
     @Override
     public void loadSnapshot(ObjectInputStream in) throws Exception {
         mutexLockStore = (ConcurrentHashMap<String, LockEntry>) in.readObject();
+        fencingTokenCounter.set(in.readLong());
     }
 }
