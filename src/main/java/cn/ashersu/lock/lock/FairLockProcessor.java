@@ -116,8 +116,7 @@ public class FairLockProcessor implements LockProcessor {
         queue.poll();
         next.setFencingToken(fencingTokenCounter.incrementAndGet());
         // 重置过期时间：以当前时刻起算，保留原始 TTL 时长
-        long ttl = next.getExpireTime() - (next.getWaitTime() > 0 ? next.getWaitTime() - next.getExpireTime() : 0);
-        next.setExpireTime(System.currentTimeMillis() + Math.max(ttl, 0));
+        next.setExpireTime(System.currentTimeMillis() + next.getExpireTime());
         fairLockStore.put(lockKey, next);
     }
 
