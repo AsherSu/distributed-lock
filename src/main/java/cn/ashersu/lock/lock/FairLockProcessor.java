@@ -6,7 +6,9 @@ import cn.ashersu.lock.statemachine.LockResult;
 
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.util.Collections;
 import java.util.LinkedList;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -43,8 +45,8 @@ public class FairLockProcessor implements LockProcessor {
     }
 
     @Override
-    public LockType getSupportedType() {
-        return LockType.FAIR;
+    public Set<LockType> getSupportedTypes() {
+        return Collections.singleton(LockType.FAIR);
     }
 
     @Override

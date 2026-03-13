@@ -5,10 +5,11 @@ import cn.ashersu.lock.statemachine.LockResult;
 
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.util.Set;
 
 public interface LockProcessor {
 
-    LockType getSupportedType();
+    Set<LockType> getSupportedTypes();
 
     LockResult process(LockCommand command);
 

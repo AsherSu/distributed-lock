@@ -40,6 +40,7 @@ public class LockStateMachine extends StateMachineAdapter {
         router.registerProcessor(new MutexLockProcessor());
         router.registerProcessor(new ReentrantLockProcessor());
         router.registerProcessor(new FairLockProcessor());
+        router.registerProcessor(new ReadWriteLockProcessor());
     }
 
     /**

@@ -6,6 +6,8 @@ import cn.ashersu.lock.statemachine.LockResult;
 
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.util.Collections;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -18,8 +20,8 @@ public class ReentrantLockProcessor implements LockProcessor{
     private final AtomicLong fencingTokenCounter = new AtomicLong(0);
 
     @Override
-    public LockType getSupportedType() {
-        return LockType.REENTRANT;
+    public Set<LockType> getSupportedTypes() {
+        return Collections.singleton(LockType.REENTRANT);
     }
 
     @Override

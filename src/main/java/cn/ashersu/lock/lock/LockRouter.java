@@ -11,7 +11,9 @@ public class LockRouter {
     private final Map<LockType, LockProcessor> processors = new EnumMap<>(LockType.class);
 
     public void registerProcessor(LockProcessor processor) {
-        processors.put(processor.getSupportedType(), processor);
+        for (LockType type : processor.getSupportedTypes()) {
+            processors.put(type, processor);
+        }
     }
 
     public LockResult routeAndProcess(LockCommand command) {
