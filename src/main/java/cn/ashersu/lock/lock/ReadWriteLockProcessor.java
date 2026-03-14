@@ -45,10 +45,6 @@ public class ReadWriteLockProcessor implements LockProcessor {
      */
     private final AtomicLong fencingTokenCounter = new AtomicLong(0);
 
-    // -------------------------------------------------------------------------
-    // LockProcessor
-    // -------------------------------------------------------------------------
-
     @Override
     public Set<LockType> getSupportedTypes() {
         return Set.of(LockType.READ, LockType.WRITE);
@@ -128,10 +124,6 @@ public class ReadWriteLockProcessor implements LockProcessor {
         return LockResult.success(LockType.WRITE, entry.getFencingToken());
     }
 
-    // -------------------------------------------------------------------------
-    // RELEASE
-    // -------------------------------------------------------------------------
-
     private LockResult applyRelease(LockCommand cmd) {
         RwState state = rwStore.get(cmd.getLockKey());
 
@@ -187,10 +179,6 @@ public class ReadWriteLockProcessor implements LockProcessor {
         state.writer = null;
         return LockResult.success(LockType.WRITE, writer.getFencingToken());
     }
-
-    // -------------------------------------------------------------------------
-    // RENEW
-    // -------------------------------------------------------------------------
 
     private LockResult applyRenew(LockCommand cmd) {
         RwState state = rwStore.get(cmd.getLockKey());
